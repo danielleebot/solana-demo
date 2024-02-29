@@ -16,6 +16,7 @@ import {
   createAssociatedTokenAccountInstruction,
   createMintToInstruction,
 } from '@solana/spl-token';
+// warning: only supported by "^2.5.2"
 import { createCreateMetadataAccountV3Instruction, PROGRAM_ID } from '@metaplex-foundation/mpl-token-metadata';
 import {
   ICreateATA,
