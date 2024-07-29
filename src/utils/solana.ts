@@ -1,36 +1,101 @@
+import BN from 'bignumber.js';
 import { decodeBase58 } from 'ethers';
 import {
-  createTransferInstruction,
-  getAssociatedTokenAddressSync,
-  getOrCreateAssociatedTokenAccount,
-  mintTo,
-  transfer,
-} from '@solana/spl-token';
-import { Keypair, Connection, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
-import {
+  getMinimumBalanceForRentExemptMint,
+  getAssociatedTokenAddress,
   MINT_SIZE,
   TOKEN_PROGRAM_ID,
   createInitializeMintInstruction,
-  getMinimumBalanceForRentExemptMint,
-  getAssociatedTokenAddress,
   createAssociatedTokenAccountInstruction,
   createMintToInstruction,
+  burn,
+  createTransferInstruction,
+  getAssociatedTokenAddressSync,
+  setAuthority,
+  AuthorityType,
 } from '@solana/spl-token';
-// warning: only supported by "^2.5.2"
-import { createCreateMetadataAccountV3Instruction, PROGRAM_ID } from '@metaplex-foundation/mpl-token-metadata';
 import {
-  ICreateATA,
-  ICreateMintToken,
-  IMintTokenTo,
-  ITransferSOL,
-  ITransferSOLBatch,
-  ITransferToken,
-  ITransferTokenBatch,
-} from '../interfaces';
-import BN from 'bignumber.js';
-import { sleep } from './common';
+  Connection,
+  Keypair,
+  PublicKey,
+  sendAndConfirmTransaction,
+  SystemProgram,
+  Transaction,
+  TransactionSignature,
+} from '@solana/web3.js';
+import {
+  createCreateMetadataAccountV3Instruction,
+  createUpdateMetadataAccountV2Instruction,
+  DataV2,
+  PROGRAM_ID,
+} from '@metaplex-foundation/mpl-token-metadata';
 
-export async function createMintToken(params: ICreateMintToken) {
+export declare interface ICreateMintTokenParams {
+  tokenName: string;
+  symbol: string;
+  decimals: number;
+  uri: string;
+  initialAmount?: number | bigint;
+  endpoint: string;
+  privateKey: string;
+}
+
+export declare interface IMintTokenToParams {
+  toAddress: string;
+  tokenAddress: string;
+  amount: number | bigint;
+  endpoint: string;
+  privateKey: string;
+}
+
+export declare interface IBurnTokenParams {
+  tokenAddress: string;
+  amount: number | bigint;
+  endpoint: string;
+  privateKey: string;
+}
+
+export declare interface IUpdateTokenMetadataParams {
+  tokenAddress: string;
+  tokenName: string;
+  symbol: string;
+  uri: string;
+  endpoint: string;
+  privateKey: string;
+}
+
+export declare interface ITransferSOLParams {
+  toAddress: string;
+  amount: number | bigint;
+  endpoint: string;
+  privateKey: string;
+}
+
+export declare interface ITransferTokenParams {
+  toAddress: string;
+  tokenAddress: string;
+  decimals?: number;
+  amount: number | bigint;
+  endpoint: string;
+  privateKey: string;
+}
+
+export declare interface ITransferTokenBatchParams {
+  targetAddressList: { address: string; amount: string }[];
+  tokenAddress: string;
+  decimals?: number;
+  endpoint: string;
+  privateKey: string;
+}
+
+export declare interface IRevokeFreezeAuthorityParams {
+  tokenAddress: string;
+  authorityType: AuthorityType;
+  endpoint: string;
+  privateKey: string;
+}
+
+export async function createMintToken(params: ICreateMintTokenParams) {
   const { tokenName, symbol, decimals, uri, initialAmount, endpoint, privateKey } = params;
 
   const connection = new Connection(endpoint, 'confirmed');
@@ -104,155 +169,112 @@ export async function createMintToken(params: ICreateMintToken) {
   return { mint: tokenATA, signature };
 }
 
-export async function mintTokenTo(params: IMintTokenTo) {
-  const { mint, toAddress, mintAmount, endpoint, privateKey } = params;
+export async function mintTokenTo(params: IMintTokenToParams): Promise<TransactionSignature> {
+  const { toAddress, tokenAddress, amount, endpoint, privateKey } = params;
+  console.log('mintTokenTo', { toAddress, tokenAddress, amount, endpoint });
 
   const connection = new Connection(endpoint, 'confirmed');
 
   // Payer of the transaction fees
   const payerPrivateHex = decodeBase58(privateKey).toString(16);
   const payer = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerPrivateHex, 'hex')));
-
-  // prepare token accounts
   const destination = new PublicKey(toAddress);
+  const mint = new PublicKey(tokenAddress);
 
-  let toTokenAccount;
-  let retryTimes = 0;
-  while (retryTimes < 5) {
-    try {
-      toTokenAccount = await getOrCreateAssociatedTokenAccount(connection, payer, mint, destination);
-      console.log('toTokenAccount:', toTokenAccount.address.toBase58());
-      break;
-    } catch (err) {
-      console.log('retryTimes', retryTimes, err);
-      retryTimes++;
-      await sleep(3000);
-    }
+  const transactions = new Transaction();
+  const toAssociatedTokenAddress = getAssociatedTokenAddressSync(mint, destination);
+  const toTokenAccountInfo = await connection.getAccountInfo(toAssociatedTokenAddress);
+  if (toTokenAccountInfo === null) {
+    transactions.add(
+      createAssociatedTokenAccountInstruction(payer.publicKey, toAssociatedTokenAddress, destination, mint),
+    );
   }
+  transactions.add(createMintToInstruction(mint, toAssociatedTokenAddress, payer.publicKey, amount));
 
-  if (!toTokenAccount) throw new Error('toTokenAccount not found');
-
-  console.log('mintTo', {
-    fromAccount: payer.publicKey.toBase58(),
-    toAccount: destination.toBase58(),
-    toTokenATA: toTokenAccount.address.toBase58(),
-  });
-
-  const signature = await mintTo(connection, payer, mint, toTokenAccount.address, payer.publicKey, mintAmount);
+  const signature = await sendAndConfirmTransaction(connection, transactions, [payer]);
   console.log('tx:', `https://solscan.io/tx/${signature}`);
 
   return signature;
 }
 
-export async function transferToken(params: ITransferToken) {
-  const { mint, toWalletPublicKey, amount, endpoint, privateKey } = params;
+export async function burnToken(params: IBurnTokenParams) {
+  const { tokenAddress, amount, endpoint, privateKey } = params;
+  console.log('burnToken', { tokenAddress, amount, endpoint });
 
   const connection = new Connection(endpoint, 'confirmed');
-
   const payerPrivateHex = decodeBase58(privateKey).toString(16);
   const payer = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerPrivateHex, 'hex')));
+  const mint = new PublicKey(tokenAddress);
+  const associatedTokenAddress = await getAssociatedTokenAddress(mint, payer.publicKey);
 
-  // prepare token accounts
-  const fromTokenATA = await getAssociatedTokenAddress(mint, payer.publicKey);
-
-  let toTokenATA;
-  let retryTimes = 0;
-  while (retryTimes < 5) {
-    try {
-      const toTokenAccount = await getOrCreateAssociatedTokenAccount(connection, payer, mint, toWalletPublicKey);
-      toTokenATA = toTokenAccount.address;
-      console.log('toTokenATA:', toTokenATA.toBase58());
-      break;
-    } catch (err) {
-      console.log('retryTimes', retryTimes, err);
-      retryTimes++;
-      await sleep(3000);
-    }
-  }
-
-  if (!toTokenATA) throw new Error('toTokenATA not found');
-
-  console.log({
-    fromAccount: payer.publicKey.toBase58(),
-    fromTokenATA: fromTokenATA.toBase58(),
-    toAccount: toWalletPublicKey.toBase58(),
-    toTokenATA: toTokenATA.toBase58(),
-  });
-
-  const signature = await transfer(connection, payer, fromTokenATA, toTokenATA, payer.publicKey, amount);
+  const signature = await burn(connection, payer, associatedTokenAddress, mint, payer, amount);
   console.log('tx:', `https://solscan.io/tx/${signature}`);
+
+  return signature;
 }
 
-export async function transferTokenBatch(params: ITransferTokenBatch) {
-  const { mint, decimals = 8, targetAddressList, endpoint, privateKey } = params;
-
-  const connection = new Connection(endpoint, 'confirmed');
+export async function updateTokenMetadata(params: IUpdateTokenMetadataParams) {
+  const { tokenAddress, tokenName, symbol, uri, endpoint, privateKey } = params;
+  console.log({ tokenAddress, tokenName, symbol, uri });
 
   const payerPrivateHex = decodeBase58(privateKey).toString(16);
   const payer = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerPrivateHex, 'hex')));
+  const mint = new PublicKey(tokenAddress);
 
-  // prepare token accounts
-  const transactions = new Transaction();
-  for (let i = 0; i < targetAddressList.length; i++) {
-    const { address, amount: tokenAmount } = targetAddressList[i];
-    const toWalletPublicKey = new PublicKey(address);
-    const amount = BigInt(new BN(tokenAmount).times(Math.pow(10, decimals as number)).toFixed(0));
+  const metadataPDA = PublicKey.findProgramAddressSync(
+    [Buffer.from('metadata'), PROGRAM_ID.toBuffer(), mint.toBuffer()],
+    PROGRAM_ID,
+  )[0];
 
-    // const fromTokenAccount = await getOrCreateAssociatedTokenAccount(connection, payer, mint, payer.publicKey);
-    // const toTokenAccount = await getOrCreateAssociatedTokenAccount(connection, payer, mint, toWalletPublicKey);
-    const fromTokenAddress = getAssociatedTokenAddressSync(mint, payer.publicKey);
-    const toTokenAddress = getAssociatedTokenAddressSync(mint, toWalletPublicKey);
+  const tokenMetadata = {
+    name: tokenName,
+    symbol: symbol,
+    uri: uri,
+    sellerFeeBasisPoints: 0,
+    creators: null,
+    collection: null,
+    uses: null,
+  } as DataV2;
 
-    transactions.add(
-      createTransferInstruction(fromTokenAddress, toTokenAddress, payer.publicKey, amount, [payer], TOKEN_PROGRAM_ID),
-    );
-  }
+  const updateMetadataTransaction = new Transaction().add(
+    createUpdateMetadataAccountV2Instruction(
+      {
+        metadata: metadataPDA,
+        updateAuthority: payer.publicKey,
+      },
+      {
+        updateMetadataAccountArgsV2: {
+          data: tokenMetadata,
+          updateAuthority: payer.publicKey,
+          primarySaleHappened: true,
+          isMutable: true,
+        },
+      },
+    ),
+  );
 
-  const signature = await sendAndConfirmTransaction(connection, transactions, [payer]);
+  const connection = new Connection(endpoint, 'confirmed');
+  const signature = await sendAndConfirmTransaction(connection, updateMetadataTransaction, [payer]);
   console.log('tx:', `https://solscan.io/tx/${signature}`);
+
+  return signature;
 }
 
-export async function createAssociatedTokenAccount(params: ICreateATA) {
-  const { mint, addresses, endpoint, privateKey } = params;
+export async function transferSOL(params: ITransferSOLParams) {
+  const { toAddress, amount, endpoint, privateKey } = params;
 
   const connection = new Connection(endpoint, 'confirmed');
 
   const payerPrivateHex = decodeBase58(privateKey).toString(16);
   const payer = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerPrivateHex, 'hex')));
-
-  // prepare token accounts
-  for (let i = 0; i < addresses.length; i++) {
-    console.log('---------', i);
-    let retryTimes = 0;
-    while (retryTimes < 5) {
-      try {
-        const toWalletPublicKey = new PublicKey(addresses[i]);
-        const toTokenAccount = await getOrCreateAssociatedTokenAccount(connection, payer, mint, toWalletPublicKey);
-        console.log('toTokenAccount:', toTokenAccount.address.toBase58());
-        break;
-      } catch (err) {
-        console.log('retryTimes', retryTimes, err);
-        retryTimes++;
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-      }
-    }
-  }
-}
-
-export async function transferSOL(params: ITransferSOL) {
-  const { toPubkey, lamports, endpoint, privateKey } = params;
-
-  const connection = new Connection(endpoint, 'confirmed');
-
-  const payerPrivateHex = decodeBase58(privateKey).toString(16);
-  const payer = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerPrivateHex, 'hex')));
+  const toPubkey = new PublicKey(toAddress);
 
   // transfer SOL
   const transaction = new Transaction().add(
     SystemProgram.transfer({
       fromPubkey: payer.publicKey,
       toPubkey,
-      lamports,
+      lamports: amount,
     }),
   );
 
@@ -261,30 +283,102 @@ export async function transferSOL(params: ITransferSOL) {
   console.log('tx:', `https://solscan.io/tx/${signature}`);
 }
 
-export async function transferSOLBatch(params: ITransferSOLBatch) {
-  const { data, endpoint, privateKey } = params;
+export async function transferToken(params: ITransferTokenParams) {
+  const { tokenAddress, decimals = 8, toAddress, amount: toAmount, endpoint, privateKey } = params;
 
   const connection = new Connection(endpoint, 'confirmed');
 
   const payerPrivateHex = decodeBase58(privateKey).toString(16);
   const payer = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerPrivateHex, 'hex')));
+  const mint = new PublicKey(tokenAddress);
 
-  // transfer SOL
+  // prepare token accounts
   const transactions = new Transaction();
+  const toWalletPublicKey = new PublicKey(toAddress);
 
-  data.forEach(({ address, amount }) => {
-    const toWalletPublicKey = new PublicKey(address);
+  const fromAssociatedTokenAddress = getAssociatedTokenAddressSync(mint, payer.publicKey);
+  const toAssociatedTokenAddress = getAssociatedTokenAddressSync(mint, toWalletPublicKey);
+  const amount = BigInt(new BN(toAmount.toString()).times(Math.pow(10, decimals as number)).toFixed(0));
 
+  const toTokenAccountInfo = await connection.getAccountInfo(toAssociatedTokenAddress);
+  if (toTokenAccountInfo === null) {
     transactions.add(
-      SystemProgram.transfer({
-        fromPubkey: payer.publicKey,
-        toPubkey: toWalletPublicKey,
-        lamports: BigInt(amount),
-      }),
+      createAssociatedTokenAccountInstruction(payer.publicKey, toAssociatedTokenAddress, toWalletPublicKey, mint),
     );
-  });
+  }
 
-  // send transaction
+  transactions.add(
+    createTransferInstruction(
+      fromAssociatedTokenAddress,
+      toAssociatedTokenAddress,
+      payer.publicKey,
+      amount,
+      [payer],
+      TOKEN_PROGRAM_ID,
+    ),
+  );
+
   const signature = await sendAndConfirmTransaction(connection, transactions, [payer]);
   console.log('tx:', `https://solscan.io/tx/${signature}`);
+
+  return signature;
+}
+
+export async function transferTokenBatch(params: ITransferTokenBatchParams) {
+  const { tokenAddress, decimals = 8, targetAddressList, endpoint, privateKey } = params;
+
+  const connection = new Connection(endpoint, 'confirmed');
+
+  const payerPrivateHex = decodeBase58(privateKey).toString(16);
+  const payer = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerPrivateHex, 'hex')));
+  const mint = new PublicKey(tokenAddress);
+
+  // prepare token accounts
+  const transactions = new Transaction();
+  for (let i = 0; i < targetAddressList.length; i++) {
+    const { address, amount: tokenAmount } = targetAddressList[i];
+    const toWalletPublicKey = new PublicKey(address);
+
+    const fromAssociatedTokenAddress = getAssociatedTokenAddressSync(mint, payer.publicKey);
+    const toAssociatedTokenAddress = getAssociatedTokenAddressSync(mint, toWalletPublicKey);
+    const amount = BigInt(new BN(tokenAmount).times(Math.pow(10, decimals as number)).toFixed(0));
+
+    const toTokenAccountInfo = await connection.getAccountInfo(toAssociatedTokenAddress);
+    if (toTokenAccountInfo === null) {
+      transactions.add(
+        createAssociatedTokenAccountInstruction(payer.publicKey, toAssociatedTokenAddress, toWalletPublicKey, mint),
+      );
+    }
+
+    transactions.add(
+      createTransferInstruction(
+        fromAssociatedTokenAddress,
+        toAssociatedTokenAddress,
+        payer.publicKey,
+        amount,
+        [payer],
+        TOKEN_PROGRAM_ID,
+      ),
+    );
+  }
+
+  const signature = await sendAndConfirmTransaction(connection, transactions, [payer]);
+  console.log('tx:', `https://solscan.io/tx/${signature}`);
+
+  return signature;
+}
+
+export async function revokeFreezeAuthority(params: IRevokeFreezeAuthorityParams) {
+  const { tokenAddress, authorityType, endpoint, privateKey } = params;
+  console.log('revokeFreezeAuthority', { tokenAddress, authorityType, endpoint });
+
+  const connection = new Connection(endpoint, 'confirmed');
+  const payerPrivateHex = decodeBase58(privateKey).toString(16);
+  const payer = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerPrivateHex, 'hex')));
+  const mint = new PublicKey(tokenAddress);
+
+  const signature = await setAuthority(connection, payer, mint, payer.publicKey, authorityType, null);
+  console.log('tx:', `https://solscan.io/tx/${signature}`);
+
+  return signature;
 }

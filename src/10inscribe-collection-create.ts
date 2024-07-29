@@ -1,6 +1,3 @@
-import * as dotenv from 'dotenv';
-dotenv.config();
-
 import { SolInscribeService } from './utils';
 
 const privateKey = process.env.PRIVATE_KEY || '';

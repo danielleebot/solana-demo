@@ -2,7 +2,8 @@
   "dependencies": {
     "@irys/sdk": "^0.1.1",
     "@metaplex-foundation/mpl-inscription": "^0.8.1",
-    "@metaplex-foundation/mpl-token-metadata": "^3.2.0",
+    "@metaplex-foundation/mpl-token-metadata": "^2.5.2",
+    "@metaplex-foundation/mpl-token-metadata3": "npm:@metaplex-foundation/mpl-token-metadata@^3.2.0",
     "@metaplex-foundation/umi": "^0.8.2",
     "@metaplex-foundation/umi-bundle-defaults": "^0.8.10",
     "@solana/spl-token": "^0.3.9",

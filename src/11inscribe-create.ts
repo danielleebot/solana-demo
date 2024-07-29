@@ -1,6 +1,3 @@
-import * as dotenv from 'dotenv';
-dotenv.config();
-
 import { PublicKey } from '@metaplex-foundation/umi';
 import { sleep, SolInscribeService } from './utils';
 

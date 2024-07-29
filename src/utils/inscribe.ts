@@ -12,7 +12,7 @@ import {
   verifyCollectionV1,
   fetchAllDigitalAssetByOwner,
   fetchAllDigitalAssetByVerifiedCollection,
-} from '@metaplex-foundation/mpl-token-metadata';
+} from '@metaplex-foundation/mpl-token-metadata3';
 
 import {
   fetchInscriptionMetadata,

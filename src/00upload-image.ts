@@ -1,6 +1,10 @@
-import { IrysService } from './utils';
+import { IrysService } from './utils/irys';
 
-const privateKey = process.env.PRIVATE_KEY || '';
+// // devnet
+// const privateKey = '';
+
+// mainnet
+const privateKey = '';
 
 const configs = {
   mainnet: {
@@ -15,11 +19,12 @@ const configs = {
   },
 };
 
-const network = 'mainnet';
-const filePath = './image.png';
+const network = 'mainnet'; // devnet | mainnet
+const filePath = './src/operations/icon.png';
 
 (async () => {
   const { url, providerUrl, token } = configs[network];
   const inscribeService = new IrysService(url, token, providerUrl, privateKey);
   await inscribeService.uploadImage(filePath);
+  return;
 })();
