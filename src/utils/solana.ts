@@ -95,6 +95,10 @@ export declare interface IRevokeFreezeAuthorityParams {
   privateKey: string;
 }
 
+export async function isValidAddress(address: string) {
+  return PublicKey.isOnCurve(new PublicKey(address));
+}
+
 export async function createMintToken(params: ICreateMintTokenParams) {
   const { tokenName, symbol, decimals, uri, initialAmount, endpoint, privateKey } = params;
 
