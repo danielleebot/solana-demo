@@ -95,8 +95,33 @@ export declare interface IRevokeFreezeAuthorityParams {
   privateKey: string;
 }
 
-export async function isValidAddress(address: string) {
+export function isValidAddress(address: string) {
+  if (!address) return false;
   return PublicKey.isOnCurve(new PublicKey(address));
+}
+
+export async function getTokenBalance(walletAddress: string, mintAddress: string, endpoint: string) {
+  try {
+    const connection = new Connection(endpoint, 'confirmed');
+
+    const usdtAssociatedTokenAddress = await getAssociatedTokenAddress(
+      new PublicKey(mintAddress),
+      new PublicKey(walletAddress),
+    );
+
+    const accountInfo = await connection.getAccountInfo(usdtAssociatedTokenAddress);
+
+    if (accountInfo === null) {
+      return 0;
+    } else {
+      const balanceBuffer = accountInfo.data.slice(64, 72); // 余额是从第64个字节开始的8个字节
+      const balance = balanceBuffer.readBigUInt64LE();
+      return balance;
+    }
+  } catch (err) {
+    console.log('ERR', err);
+    return 0;
+  }
 }
 
 export async function createMintToken(params: ICreateMintTokenParams) {
